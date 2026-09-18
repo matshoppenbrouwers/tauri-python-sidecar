@@ -232,43 +232,106 @@ fn spawn_sidecar_monitor(app: tauri::AppHandle) {
     });
 }
 
-/// Check if a process with given PID is currently running
-fn is_process_running(pid: u32) -> bool {
+/// The image name of the process with this PID, or `None` when no such process
+/// exists.
+///
+/// Returning the name rather than a bare bool is what makes PID-reuse safe: an
+/// operating system reassigns a PID as soon as it is free, so "a process with
+/// the PID from the lock file is alive" does NOT mean "our worker is alive". It
+/// may be an unrelated program that inherited the number, and force-killing it
+/// would be a bug with someone else's data. Callers that intend to kill must
+/// compare this name against the one the worker recorded.
+///
+/// Note the exact-match parsing. The obvious `stdout.contains(pid)` is wrong:
+/// a tasklist row carries the session id and a memory figure, so PID 123 also
+/// matches the row for PID 1234 and the row whose memory column reads
+/// "12,312 K".
+fn running_image_name(pid: u32) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        // Windows: Use tasklist with CREATE_NO_WINDOW to prevent console popup
-        match std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-            .creation_flags(CREATE_NO_WINDOW) // Prevent console window
+        // CSV output is parseable; the default table output is column-aligned
+        // and locale-dependent.
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
-        {
-            Ok(output) => {
-                if let Ok(stdout) = String::from_utf8(output.stdout) {
-                    return stdout.contains(&pid.to_string());
-                }
-                false
+            .ok()?;
+
+        let stdout = String::from_utf8(output.stdout).ok()?;
+        // Row shape: "image.exe","1234","Console","1","12,345 K"
+        for line in stdout.lines() {
+            let fields: Vec<&str> = line.split("\",\"").collect();
+            if fields.len() < 2 {
+                continue;
             }
-            Err(e) => {
-                log::warn!("tasklist command failed for PID {}: {}", pid, e);
-                // Conservative: assume alive if can't determine
-                true
+            let image = fields[0].trim_start_matches('"');
+            if fields[1].trim_matches('"').parse::<u32>() == Ok(pid) {
+                return Some(image.to_string());
             }
         }
+        None
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        // Unix: Use ps command
-        if let Ok(output) = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string()])
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
             .output()
-        {
-            return output.status.success();
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
         }
-        false
+        let name = String::from_utf8(output.stdout).ok()?.trim().to_string();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    }
+}
+
+/// Check if a process with given PID is currently running.
+fn is_process_running(pid: u32) -> bool {
+    running_image_name(pid).is_some()
+}
+
+/// Whether the process holding `pid` is really the worker that wrote the lock,
+/// judged by the image name the worker recorded alongside its PID.
+///
+/// A lock file written before this identity check existed carries no name. That
+/// case returns false on purpose: refusing to kill leaves a stray worker for the
+/// port check to report, whereas killing blind can take out an unrelated
+/// process. The recoverable failure is the better default.
+fn is_expected_process(pid: u32, expected_image: Option<&str>) -> bool {
+    let Some(expected) = expected_image else {
+        log::warn!(
+            "Lock file for PID {} records no image name; refusing to kill a \
+             process this app cannot prove it owns",
+            pid
+        );
+        return false;
+    };
+
+    match running_image_name(pid) {
+        None => false,
+        Some(actual) => {
+            if actual.eq_ignore_ascii_case(expected) {
+                true
+            } else {
+                log::warn!(
+                    "PID {} is now '{}', not the expected '{}' — the PID was \
+                     reused, so the lock is stale and the process is not ours",
+                    pid,
+                    actual,
+                    expected
+                );
+                false
+            }
+        }
     }
 }
 
@@ -369,7 +432,10 @@ fn graceful_shutdown_worker(pid: u32, timeout_secs: u64) -> Result<(), String> {
 /// mean there is nothing left to clean up. The vanished case is a real TOCTOU
 /// race: the worker's own cleanup can delete the file between the `exists()`
 /// check and the read.
-fn read_lock_pid(lock_file: &std::path::Path, worker_name: &str) -> Result<Option<u32>, String> {
+fn read_lock_entry(
+    lock_file: &std::path::Path,
+    worker_name: &str,
+) -> Result<Option<(u32, Option<String>)>, String> {
     if !lock_file.exists() {
         log::debug!("{} lock file not found, skipping", worker_name);
         return Ok(None);
@@ -387,11 +453,23 @@ fn read_lock_pid(lock_file: &std::path::Path, worker_name: &str) -> Result<Optio
         Err(e) => return Err(format!("Failed to read {} lock file: {}", worker_name, e)),
     };
 
-    pid_str
+    // Line 1 is the PID, line 2 the worker's own image name. The second line is
+    // optional so a lock written by an older build still parses; see
+    // `is_expected_process` for why a missing name means "do not kill".
+    let mut lines = pid_str.lines();
+    let pid = lines
+        .next()
+        .unwrap_or("")
         .trim()
         .parse::<u32>()
-        .map(Some)
-        .map_err(|e| format!("Invalid PID in {} lock file: {}", worker_name, e))
+        .map_err(|e| format!("Invalid PID in {} lock file: {}", worker_name, e))?;
+    let image = lines
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    Ok(Some((pid, image)))
 }
 
 /// Remove a worker's lock file after its process is gone.
@@ -414,14 +492,17 @@ fn remove_lock_file(lock_file: &std::path::Path, worker_name: &str) -> Result<()
 
 /// Cleanup a single stale worker by force killing immediately (for startup cleanup)
 fn cleanup_worker_lock(lock_file: &std::path::Path, worker_name: &str) -> Result<(), String> {
-    let Some(pid) = read_lock_pid(lock_file, worker_name)? else {
+    let Some((pid, image)) = read_lock_entry(lock_file, worker_name)? else {
         return Ok(());
     };
 
-    // Check if process is actually running
-    if !is_process_running(pid) {
+    // Only kill a process this app can prove is its own worker. A bare liveness
+    // check is not enough: the PID in a crashed run's lock file may since have
+    // been reused by something unrelated, and force-killing that would destroy a
+    // stranger's work.
+    if !is_expected_process(pid, image.as_deref()) {
         log::info!(
-            "{} process (PID {}) not running, removing stale lock",
+            "{} (PID {}) is not running as this app's worker, removing stale lock",
             worker_name,
             pid
         );
@@ -489,14 +570,14 @@ fn cleanup_worker_lock_with_timeout(
     worker_name: &str,
     timeout_secs: u64,
 ) -> Result<(), String> {
-    let Some(pid) = read_lock_pid(lock_file, worker_name)? else {
+    let Some((pid, image)) = read_lock_entry(lock_file, worker_name)? else {
         return Ok(());
     };
 
     // Check if process is actually running
-    if !is_process_running(pid) {
+    if !is_expected_process(pid, image.as_deref()) {
         log::info!(
-            "{} process (PID {}) not running, removing stale lock",
+            "{} (PID {}) is not running as this app's worker, removing stale lock",
             worker_name,
             pid
         );
@@ -908,4 +989,73 @@ pub fn run() {
                 cleanup_workers();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The process running these tests is a live PID we can name for certain.
+    #[test]
+    fn running_image_name_finds_this_process() {
+        let me = std::process::id();
+        assert!(
+            running_image_name(me).is_some(),
+            "the test process itself must be reported as running"
+        );
+    }
+
+    #[test]
+    fn running_image_name_is_none_for_dead_pid() {
+        // Not PID 0: Windows reports that as "System Idle Process". This value
+        // is above anything either platform assigns.
+        assert!(running_image_name(u32::MAX - 1).is_none());
+    }
+
+    /// Regression: a live PID whose image does not match the recorded worker
+    /// must not be killed. Before this check, startup cleanup force-killed
+    /// whatever process happened to hold a reused PID.
+    #[test]
+    fn is_expected_process_rejects_a_reused_pid() {
+        let me = std::process::id();
+        assert!(
+            !is_expected_process(me, Some("definitely-not-the-sidecar.exe")),
+            "a name mismatch means the PID was reused and must not be killed"
+        );
+    }
+
+    /// Regression: a lock file with no recorded image name is not enough to
+    /// authorise a kill.
+    #[test]
+    fn is_expected_process_rejects_unknown_image() {
+        let me = std::process::id();
+        assert!(!is_expected_process(me, None));
+    }
+
+    #[test]
+    fn is_expected_process_accepts_a_matching_image() {
+        let me = std::process::id();
+        let actual = running_image_name(me).expect("test process is running");
+        assert!(is_expected_process(me, Some(&actual)));
+    }
+
+    #[test]
+    fn read_lock_entry_parses_pid_and_image() {
+        let dir = std::env::temp_dir().join("tps-lock-entry-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("two-line.lock");
+        std::fs::write(&lock, "4321\npy-sidecar.exe\n").unwrap();
+
+        let (pid, image) = read_lock_entry(&lock, "test").unwrap().unwrap();
+        assert_eq!(pid, 4321);
+        assert_eq!(image.as_deref(), Some("py-sidecar.exe"));
+
+        // A single-line lock from an older build still parses, with no name.
+        std::fs::write(&lock, "4321").unwrap();
+        let (pid, image) = read_lock_entry(&lock, "test").unwrap().unwrap();
+        assert_eq!(pid, 4321);
+        assert_eq!(image, None);
+
+        std::fs::remove_file(&lock).ok();
+    }
 }

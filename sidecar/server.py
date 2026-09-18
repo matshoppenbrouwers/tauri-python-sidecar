@@ -16,7 +16,6 @@ import hmac
 import json
 import logging
 import os
-import platform
 import queue
 import secrets
 import signal
@@ -69,9 +68,23 @@ class SidecarTcpServer:
         """Generate a random session token and write it with restricted permissions."""
         self._token = secrets.token_urlsafe(32)
         self._token_file.parent.mkdir(parents=True, exist_ok=True)
-        self._token_file.write_text(self._token)
-        if platform.system() != "Windows":
-            os.chmod(self._token_file, 0o600)
+        # Create the file already restricted rather than writing it and calling
+        # chmod after: between those two calls the token sits on disk readable by
+        # every local account at the process umask, which is exactly the window an
+        # attacker on a shared machine needs. O_EXCL after an unlink also refuses
+        # to follow a symlink planted at this path.
+        self._token_file.unlink(missing_ok=True)
+        fd = os.open(
+            self._token_file,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        try:
+            os.write(fd, self._token.encode("utf-8"))
+        finally:
+            os.close(fd)
+        # Windows ignores the mode argument; the file inherits the ACL of the
+        # per-user data directory it lives in, which is already user-scoped.
         logger.info("Sidecar session token written to %s", self._token_file)
 
     def _cleanup_session_token(self) -> None:
@@ -346,40 +359,89 @@ def _get_lock_file() -> Path:
     return index_dir / "sidecar_server.lock"
 
 
-def _is_server_running() -> bool:
-    """Check if server is already running via PID lock."""
-    lock_file = _get_lock_file()
-    if not lock_file.exists():
-        return False
+def _running_image_name(pid: int) -> str | None:
+    """Image name of the process holding `pid`, or None if there is none.
 
-    try:
-        pid = int(lock_file.read_text().strip())
+    The name matters as much as the liveness: PIDs are reused, so a live process
+    at a lock file's PID may be an unrelated program that inherited the number.
+    The Rust supervisor makes the same check before it kills anything.
+    """
+    import subprocess
+    import sys
 
-        # Cross-platform process check (os.kill doesn't work on Windows)
-        import subprocess
-        import sys
-
-        if sys.platform == "win32":
+    if sys.platform == "win32":
+        try:
             result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True,
                 text=True,
                 timeout=2,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
-            return str(pid) in result.stdout
-        else:
-            os.kill(pid, 0)
-            return True
-    except (ValueError, ProcessLookupError, OSError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        # Row shape: "image.exe","1234","Console","1","12,345 K".
+        # Parse the fields rather than substring-matching the PID: a bare
+        # `str(pid) in stdout` also matches PID 1234 when looking for 123, and
+        # matches the memory column "12,312 K".
+        for line in result.stdout.splitlines():
+            fields = [f.strip('"') for f in line.split('","')]
+            if len(fields) >= 2 and fields[1].strip('"').isdigit():
+                if int(fields[1].strip('"')) == pid:
+                    return fields[0].lstrip('"')
+        return None
+
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return None
+    return Path(sys.executable).name
+
+
+def _is_server_running() -> bool:
+    """Check if a server owning the lock file is already running."""
+    lock_file = _get_lock_file()
+    if not lock_file.exists():
+        return False
+
+    try:
+        lines = lock_file.read_text().splitlines()
+        pid = int(lines[0].strip())
+        recorded_image = lines[1].strip() if len(lines) > 1 else None
+    except (ValueError, IndexError, OSError):
         lock_file.unlink(missing_ok=True)
         return False
 
+    actual_image = _running_image_name(pid)
+    if actual_image is None:
+        lock_file.unlink(missing_ok=True)
+        return False
+
+    # A live PID whose image does not match is a reused PID, not our server.
+    if recorded_image and actual_image.lower() != recorded_image.lower():
+        logger.info(
+            "Lock file PID %d is now %s, not %s; treating the lock as stale",
+            pid,
+            actual_image,
+            recorded_image,
+        )
+        lock_file.unlink(missing_ok=True)
+        return False
+
+    return True
+
 
 def _create_lock_file() -> None:
-    """Create PID lock file for server process."""
+    """Create PID lock file for server process.
+
+    Two lines: the PID, then this process's image name. The Rust supervisor
+    compares that name against the live process before killing anything, so a
+    reused PID cannot make it terminate an unrelated program.
+    """
+    import sys
+
     lock_file = _get_lock_file()
-    lock_file.write_text(str(os.getpid()))
+    lock_file.write_text(f"{os.getpid()}\n{Path(sys.executable).name}\n")
     logger.info("Created server lock file: %s", lock_file)
 
 

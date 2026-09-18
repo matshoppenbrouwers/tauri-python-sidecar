@@ -339,6 +339,15 @@ process is a one-line change rather than four edits scattered through the file.
 On a hard kill of the app — not a window close — the detached sidecar survives,
 and that startup sweep is what cleans it up on the next launch.
 
+That sweep is also the one place this pattern can do real damage, so it is worth
+copying carefully. The lock file records the worker's **image name** next to its
+PID, and the sweep kills only when the live process still carries that name.
+Checking liveness alone is not enough: an operating system reuses a PID as soon
+as it is free, so by the next launch the number in a crashed run's lock file may
+belong to something else entirely, and a blind `taskkill /F` would take out a
+stranger's program. A lock file with no recorded name is not killed either; a
+leftover worker is a recoverable annoyance, killing the wrong process is not.
+
 ### `src-tauri/src/supervisor.rs` — the general case
 
 A map of supervised child processes keyed by id, with declarative launch specs,

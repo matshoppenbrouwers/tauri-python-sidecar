@@ -12,9 +12,19 @@ On startup the server generates a token and writes it to a file:
 
 ```python
 self._token = secrets.token_urlsafe(32)
-self._token_file.write_text(self._token)
-os.chmod(self._token_file, 0o600)          # POSIX only; see below
+self._token_file.unlink(missing_ok=True)
+fd = os.open(self._token_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+try:
+    os.write(fd, self._token.encode("utf-8"))
+finally:
+    os.close(fd)
 ```
+
+The file is **created** restricted rather than written and then `chmod`ed. The
+obvious two-step version leaves the token on disk readable at the process umask
+between the write and the `chmod`, which is the window an attacker on a shared
+machine needs. `O_EXCL` after the unlink also refuses to follow a symlink
+planted at that path.
 
 The token file sits in the same `.index/` directory as the database and the PID
 lock, next to the socket it protects.
@@ -53,9 +63,9 @@ deleted at shutdown. A token captured from a crashed session is useless against
 the next one, and there is no secret to provision, rotate or store.
 
 **File permissions are the real access control.** The token is only as private
-as the file. `os.chmod(0o600)` is a POSIX call and is a no-op on Windows — the
-code guards for that. On Windows the protection is that the file lives under the
-user's own `%APPDATA%`, which other users cannot read. That is weaker than mode
+as the file. The `0o600` mode argument is a POSIX concept and Windows ignores it.
+On Windows the protection is instead that the file lives under the user's own
+`%APPDATA%`, which other users cannot read. That is weaker than mode
 0600 and it is worth knowing: on a shared Windows machine with an administrator
 you do not control, this handshake does not defend against that administrator.
 Nothing available in a sidecar's threat model does.

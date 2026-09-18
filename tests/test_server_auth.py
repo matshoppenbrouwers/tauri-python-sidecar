@@ -141,3 +141,58 @@ class TestAuthenticate:
         reader, writer = _mock_streams(json.dumps({"type": "auth", "token": ""}))
 
         assert await server._authenticate(reader, writer) is False
+
+
+class TestLockFilePidReuse:
+    """A live PID whose image differs from the recorded one is a reused PID.
+
+    Regression: treating any live PID in the lock file as "the server is
+    running" made startup either refuse to start or, on the Rust side, kill an
+    unrelated process that had inherited the number.
+    """
+
+    def test_lock_with_mismatched_image_is_stale(self, tmp_path, monkeypatch):
+        from sidecar import server
+
+        lock = tmp_path / "sidecar_server.lock"
+        lock.write_text("4321\npy-sidecar.exe\n")
+        monkeypatch.setattr(server, "_get_lock_file", lambda: lock)
+        monkeypatch.setattr(server, "_running_image_name", lambda pid: "notepad.exe")
+
+        assert server._is_server_running() is False
+        assert not lock.exists(), "a reused-PID lock must be cleared"
+
+    def test_lock_with_matching_image_is_live(self, tmp_path, monkeypatch):
+        from sidecar import server
+
+        lock = tmp_path / "sidecar_server.lock"
+        lock.write_text("4321\npy-sidecar.exe\n")
+        monkeypatch.setattr(server, "_get_lock_file", lambda: lock)
+        monkeypatch.setattr(server, "_running_image_name", lambda pid: "py-sidecar.exe")
+
+        assert server._is_server_running() is True
+        assert lock.exists()
+
+    def test_lock_for_dead_pid_is_cleared(self, tmp_path, monkeypatch):
+        from sidecar import server
+
+        lock = tmp_path / "sidecar_server.lock"
+        lock.write_text("4321\npy-sidecar.exe\n")
+        monkeypatch.setattr(server, "_get_lock_file", lambda: lock)
+        monkeypatch.setattr(server, "_running_image_name", lambda pid: None)
+
+        assert server._is_server_running() is False
+        assert not lock.exists()
+
+    def test_lock_file_records_pid_and_image(self, tmp_path, monkeypatch):
+        import os
+
+        from sidecar import server
+
+        lock = tmp_path / "sidecar_server.lock"
+        monkeypatch.setattr(server, "_get_lock_file", lambda: lock)
+        server._create_lock_file()
+
+        lines = lock.read_text().splitlines()
+        assert lines[0] == str(os.getpid())
+        assert lines[1].endswith(".exe") or lines[1]
