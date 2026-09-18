@@ -85,18 +85,36 @@ fn get_project_root_dev() -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Locate the interpreter to use in development mode.
+///
+/// The project's own `.venv` wins over whatever `python` happens to be first on
+/// `PATH`. This is not a nicety: the sidecar needs its dependencies installed,
+/// and on a developer machine with several interpreters (a system Python, a
+/// conda base, another project's venv exported into the shell) the bare name
+/// resolves to an interpreter that cannot import `filelock`. The sidecar then
+/// dies on import, the supervisor restarts it five times, and the failure reads
+/// as "the supervisor is broken" rather than "wrong Python". Falling back to
+/// the bare name keeps a global-install workflow working.
+fn dev_python_exe(project_root: &str) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    let (venv_relative, fallback) = ("\\.venv\\Scripts\\python.exe", "python");
+
+    #[cfg(not(target_os = "windows"))]
+    let (venv_relative, fallback) = ("/.venv/bin/python", "python3");
+
+    let venv_python = PathBuf::from(format!("{}{}", project_root, venv_relative));
+    if venv_python.exists() {
+        return venv_python;
+    }
+    PathBuf::from(fallback)
+}
+
 /// Get sidecar config for development mode.
 fn get_dev_config() -> SidecarConfig {
     let project_root = get_project_root_dev().unwrap_or_else(|| ".".to_string());
 
-    #[cfg(target_os = "windows")]
-    let python_exe = "python";
-
-    #[cfg(not(target_os = "windows"))]
-    let python_exe = "python3";
-
     SidecarConfig {
-        executable: PathBuf::from(python_exe),
+        executable: dev_python_exe(&project_root),
         base_args: vec!["-m".to_string(), "sidecar.loader".to_string()],
         working_dir: Some(PathBuf::from(&project_root)),
         is_dev: true,

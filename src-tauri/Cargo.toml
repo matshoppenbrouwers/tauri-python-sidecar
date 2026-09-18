@@ -26,10 +26,15 @@ tauri = { version = "2", features = [] }
 # embedded Common-Controls v6 manifest the lib unit-test binary dies at load
 # with STATUS_ENTRYPOINT_NOT_FOUND. See docs/comctl32-test-runner.md.
 tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 tokio = { version = "1", features = ["time"] }
+# Startup WAL recovery opens the sidecar's SQLite file from Rust, before any
+# Python runs, so a crash-stale write-ahead log is checkpointed exactly once.
+# `bundled` compiles SQLite in rather than linking whatever the host has.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 # `paths::get_data_dir()` resolves the platform data directory on macOS/Linux.
 # Windows reads %APPDATA% directly and needs no extra crate.

@@ -13,6 +13,10 @@ dist-ssr/
 __pycache__/
 *.egg-info/
 build/
+.pytest_cache/
+
+# Sidecar runtime state: session token, PID lock, database and logs.
+.index/
 
 # Build artefacts — the Nuitka sidecar binary is produced by
 # packaging/nuitka-build.py and must never be committed.

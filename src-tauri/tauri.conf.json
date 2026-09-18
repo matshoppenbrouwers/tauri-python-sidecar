@@ -13,9 +13,9 @@
     "windows": [
       {
         "label": "main",
-        "title": "tauri-python-sidecar",
-        "width": 800,
-        "height": 600
+        "title": "Supervised Python sidecar — crash recovery demo",
+        "width": 760,
+        "height": 720
       }
     ],
     "security": {
