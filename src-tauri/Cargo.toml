@@ -27,6 +27,10 @@ tauri = { version = "2", features = [] }
 # with STATUS_ENTRYPOINT_NOT_FOUND. See docs/comctl32-test-runner.md.
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
+# Auto-update. The updater plugin is what reads plugins.updater from
+# tauri.conf.json; the process plugin provides relaunch() after an install.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"

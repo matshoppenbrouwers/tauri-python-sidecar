@@ -834,6 +834,11 @@ async fn prepare_for_update(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // The updater and process plugins back ui/src/hooks/useUpdater.ts.
+        // They are inert until plugins.updater in tauri.conf.json carries a
+        // real minisign pubkey and endpoint in place of the placeholders.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(SidecarSupervisor::default())
         .manage(HarnessSupervisor::default())
         .setup(|app| {

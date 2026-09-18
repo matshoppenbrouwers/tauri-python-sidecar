@@ -1,0 +1,234 @@
+name: Release
+
+# Three jobs, in this order, on purpose:
+#
+#   validate-version  cheap, on Linux, fails in seconds if the tag and the six
+#                     version-bearing files disagree. Catching that AFTER a
+#                     20-minute Nuitka + Tauri build is how you learn to put it
+#                     first.
+#   build-sidecar     compiles the Python sidecar with Nuitka and uploads the
+#                     single .exe as an artifact.
+#   build-tauri       downloads that .exe into src-tauri/binaries/ and builds
+#                     the installer around it.
+#
+# The sidecar is built in its own job because it is the slow, memory-hungry half
+# and because Tauri's `externalBin` needs it on disk before the bundler runs.
+#
+# Every third-party action is pinned to a commit SHA, not a tag. A tag is
+# mutable; a compromised action tag is a supply-chain attack on your signing
+# secrets. The trailing comment records the human-readable version.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  # Validate the tag matches the version recorded in the repo
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Validate version consistency
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Keep this list in sync with packaging/sync-versions.py, which is the
+          # tool that writes these files. This job is the gate that proves the
+          # tool was actually run before the tag was pushed.
+
+          PYPROJECT_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml)
+          if [ "$PYPROJECT_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: pyproject.toml has $PYPROJECT_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          TAURI_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          if [ "$TAURI_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: tauri.conf.json has $TAURI_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          UI_VERSION=$(jq -r '.version' ui/package.json)
+          if [ "$UI_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: ui/package.json has $UI_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          ROOT_VERSION=$(jq -r '.version' package.json)
+          if [ "$ROOT_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: package.json has $ROOT_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          PY_VERSION=$(grep -oP 'VERSION = "\K[^"]+' packaging/version.py)
+          if [ "$PY_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: packaging/version.py has $PY_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          # Cargo.toml: -m1 so the [package] version wins over any dependency
+          # that happens to spell its version the same way.
+          CARGO_VERSION=$(grep -m1 -oP '^version = "\K[^"]+' src-tauri/Cargo.toml)
+          if [ "$CARGO_VERSION" != "$VERSION" ]; then
+            echo "::error::Version mismatch: src-tauri/Cargo.toml has $CARGO_VERSION, expected $VERSION"
+            exit 1
+          fi
+
+          echo "::notice::Version $VERSION validated across all configs"
+
+  # Build the Python sidecar with Nuitka
+  build-sidecar:
+    needs: validate-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r packaging/build-requirements.txt
+
+      - name: Install Nuitka
+        run: pip install nuitka ordered-set zstandard
+
+      - name: Build sidecar with Nuitka
+        run: python packaging/nuitka-build.py
+
+      # Signing is optional. sign.ps1 exits 0 with a warning when the secrets
+      # are absent, so a fork with no signing account still gets a green
+      # release run and an unsigned installer.
+      - name: Sign sidecar (if secrets available)
+        env:
+          AZURE_KEY_VAULT_URI: ${{ secrets.AZURE_KEY_VAULT_URI }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CERT_NAME: ${{ secrets.AZURE_CERT_NAME }}
+        run: powershell ./packaging/sign.ps1 -FilePath "src-tauri/binaries/py-sidecar-x86_64-pc-windows-msvc.exe"
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sidecar-windows
+          path: src-tauri/binaries/py-sidecar-x86_64-pc-windows-msvc.exe
+          retention-days: 1
+
+  # Build the Tauri app around the compiled sidecar
+  build-tauri:
+    needs: [validate-version, build-sidecar]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Must land before the Tauri build: `externalBin` resolves
+      # binaries/py-sidecar to a real file at bundle time.
+      - name: Download sidecar
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sidecar-windows
+          path: src-tauri/binaries/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@eae0cfeb286e66ffb5155f1a79b90583a127a68b # v2
+        with:
+          version: 10
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      # TAURI_SIGNING_PRIVATE_KEY is the minisign key for the AUTO-UPDATER, and
+      # is unrelated to the Authenticode signing above. It is only required when
+      # bundle.createUpdaterArtifacts is true in tauri.conf.json — which this
+      # template ships as false, because a clone has no key and the bundler
+      # errors out rather than skipping. Generate one with
+      # `pnpm tauri signer generate`, put the public half in
+      # plugins.updater.pubkey (replacing TODO_YOUR_PUBKEY), the private half in
+      # this secret, and flip createUpdaterArtifacts to true.
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'v__VERSION__'
+          releaseBody: |
+            ## Installation
+
+            Download and run the `_x64-setup.exe` asset below.
+
+            ## Verify your download
+
+            ```powershell
+            certutil -hashfile <installer>.exe SHA256
+            ```
+
+            Compare the result with the `SHA256SUMS` asset.
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
+
+      - name: Sign installer (if secrets available)
+        env:
+          AZURE_KEY_VAULT_URI: ${{ secrets.AZURE_KEY_VAULT_URI }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CERT_NAME: ${{ secrets.AZURE_CERT_NAME }}
+        run: |
+          $installer = Get-ChildItem -Path "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if ($installer) {
+            powershell ./packaging/sign.ps1 -FilePath $installer.FullName
+          }
+
+      - name: Generate checksums
+        run: |
+          $bundle = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          Get-ChildItem -Path "$bundle/*.exe" | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content -Path "$bundle/SHA256SUMS" -Encoding ascii
+          Get-Content "$bundle/SHA256SUMS"
+        continue-on-error: true
+
+      # Only meaningful once createUpdaterArtifacts is true and a signing key is
+      # configured; it reads the .sig the bundler emits next to the installer.
+      - name: Generate updater manifest
+        run: python packaging/generate_latest_json.py --version ${{ needs.validate-version.outputs.version }}
+        continue-on-error: true
