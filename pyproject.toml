@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # Replace with your own name and email before publishing.
-authors = [{ name = "TODO_YOUR_NAME", email = "you@example.com" }]
+authors = [{ name = "matshoppenbrouwers" }]
 
 # Deliberately tiny. The template's own runtime needs nothing but the standard
 # library plus `filelock` for the cross-process migration lock. Every dependency
@@ -21,8 +21,8 @@ dependencies = ["filelock>=3.12"]
 dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
 
 [project.urls]
-Homepage = "https://github.com/TODO_YOUR_ACCOUNT/tauri-python-sidecar"
-Repository = "https://github.com/TODO_YOUR_ACCOUNT/tauri-python-sidecar"
+Homepage = "https://github.com/matshoppenbrouwers/tauri-python-sidecar"
+Repository = "https://github.com/matshoppenbrouwers/tauri-python-sidecar"
 
 [tool.setuptools.packages.find]
 include = ["sidecar*"]

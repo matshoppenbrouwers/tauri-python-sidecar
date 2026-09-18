@@ -34,7 +34,7 @@ sys.path.insert(0, str(PACKAGING_DIR))
 
 from version import VERSION  # noqa: E402
 
-REPO_URL = "https://github.com/TODO_YOUR_ACCOUNT/TODO_YOUR_REPO"
+REPO_URL = "https://github.com/matshoppenbrouwers/tauri-python-sidecar"
 BUNDLE_DIR = PROJECT_ROOT / "src-tauri" / "target" / "release" / "bundle" / "nsis"
 
 

@@ -2,10 +2,10 @@
 name = "tauri-python-sidecar"
 version = "0.1.0"
 description = "Tauri v2 desktop app with a supervised Python sidecar"
-authors = ["TODO_YOUR_NAME <TODO_YOUR_EMAIL>"]
+authors = ["matshoppenbrouwers"]
 license = "MIT"
-repository = "https://github.com/TODO_YOUR_ORG/TODO_YOUR_REPO"
-homepage = "https://github.com/TODO_YOUR_ORG/TODO_YOUR_REPO"
+repository = "https://github.com/matshoppenbrouwers/tauri-python-sidecar"
+homepage = "https://github.com/matshoppenbrouwers/tauri-python-sidecar"
 edition = "2021"
 rust-version = "1.77.2"
 

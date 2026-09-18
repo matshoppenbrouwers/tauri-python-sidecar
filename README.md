@@ -19,35 +19,35 @@ Running Python behind a Tauri app is a common shape and a well-documented one,
 up to the point where it has to work on someone else's machine. Seven things
 have to hold at once:
 
-1. **Process supervision** — the sidecar dies; something notices and restarts it
+1. **Process supervision** - the sidecar dies; something notices and restarts it
    with backoff, and gives up loudly rather than retrying forever.
-2. **An authenticated local transport** — a TCP port on loopback is reachable by
+2. **An authenticated local transport** - a TCP port on loopback is reachable by
    anything else running as the same user.
-3. **Cross-process schema migrations** — the sidecar, a worker and a one-shot
+3. **Cross-process schema migrations** - the sidecar, a worker and a one-shot
    invocation can all open the same SQLite file within the same second at app
    launch.
-4. **Crash recovery** — stale PID locks, a write-ahead log left behind by a hard
+4. **Crash recovery** - stale PID locks, a write-ahead log left behind by a hard
    kill, a detached process that outlived the window closing.
-5. **Freezing Python into a binary** — Nuitka, and the specific flags that make
+5. **Freezing Python into a binary** - Nuitka, and the specific flags that make
    it fit in memory and not ship a licence you did not intend.
-6. **Code signing** — of the sidecar executable, not just the app.
-7. **Auto-update** — that takes the running sidecar down before overwriting it,
+6. **Code signing** - of the sidecar executable, not just the app.
+7. **Auto-update** - that takes the running sidecar down before overwriting it,
    and does not delete the user's data on the way through.
 
 A survey of the published examples found none that combines even three:
 
 - [`dieharders/example-tauri-v2-python-server-sidecar`](https://github.com/dieharders/example-tauri-v2-python-server-sidecar)
-  — PyInstaller, hello-world scope. Its own README's TODO list asks for the
+ - PyInstaller, hello-world scope. Its own README's TODO list asks for the
   "multi-sidecar manager" that does not exist.
 - [`fudanglp/tauri-fastapi-full-stack-template`](https://github.com/fudanglp/tauri-fastapi-full-stack-template)
-  — describes itself as production-ready; auth is off by default, and there is
+ - describes itself as production-ready; auth is off by default, and there is
   no crash recovery, no migration locking, no signing and no updater.
 - Nothing at all on Nuitka with Tauri. Every guide is PyInstaller.
 
 The demand is on the record rather than assumed.
 [tauri-apps/plugins-workspace#3062](https://github.com/tauri-apps/plugins-workspace/issues/3062)
-asks for precisely this supervision layer — health checks and automatic restart
-with backoff — and has been open and unimplemented since October 2025.
+asks for precisely this supervision layer - health checks and automatic restart
+with backoff - and has been open and unimplemented since October 2025.
 [tauri-apps/tauri#7381](https://github.com/tauri-apps/tauri/issues/7381) records
 sidecar signing as a known gap.
 
@@ -57,7 +57,7 @@ first of those.
 ### The comments are the point
 
 This is extracted from a shipped application, and what makes it worth cloning is
-not the line count — it is the annotated reasoning attached to each piece. Why
+not the line count - it is the annotated reasoning attached to each piece. Why
 the port allocator has a documented TOCTOU caveat. Why a successful WAL
 checkpoint still needs a `SELECT 1` afterwards. Why `--python-flag=no_annotations`
 looks free and is not. Why the restart ladder is capped at five and resets after
@@ -153,7 +153,7 @@ template uses raw TCP with newline-delimited JSON-RPC, and the honest accounting
 is:
 
 **What raw TCP costs you.** No OpenAPI schema and no generated clients. No
-`curl` against a running sidecar, no browser devtools network tab, no Postman —
+`curl` against a running sidecar, no browser devtools network tab, no Postman - 
 debugging means a Python script that speaks the line protocol. No middleware
 ecosystem: CORS, rate limiting, compression and request logging are all yours to
 write if you want them. No streaming primitives beyond what
@@ -162,7 +162,7 @@ protocol in their fingers, and every contributor has to learn it. It is about
 600 lines of transport code you now own, against a dependency you would not.
 
 **What it buys.** The dependency footprint is the standard library plus
-`filelock` — which is why the Nuitka include list is three packages and the
+`filelock` - which is why the Nuitka include list is three packages and the
 binary is small, and why there are no compilation surprises from a web
 framework's dynamic imports. The message contract is one line in, one line out,
 which makes the "is the server down or just busy?" distinction exact:
@@ -175,7 +175,7 @@ application to find and probe.
 **A fair summary.** If your sidecar is mainly a request/response API and you
 value tooling and familiarity, FastAPI over loopback HTTP is a perfectly good
 choice, and the supervision, migration, packaging and updater parts of this
-repository transfer to it unchanged — the transport is one replaceable layer.
+repository transfer to it unchanged - the transport is one replaceable layer.
 The transport was kept verbatim here because it was working, shipped code and
 rewriting it would have meant publishing something unproven.
 
@@ -187,7 +187,7 @@ rewriting it would have meant publishing something unproven.
 
 - Windows 10 or 11
 - Rust, MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`)
-- Windows 10/11 SDK — needed for `mt.exe`, which `cargo test` uses; see
+- Windows 10/11 SDK - needed for `mt.exe`, which `cargo test` uses; see
   [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md)
 - Python 3.10 or later
 - Node 18 or later, with pnpm. If `pnpm` is not on `PATH`: `corepack enable pnpm`
@@ -195,7 +195,7 @@ rewriting it would have meant publishing something unproven.
 ### Development
 
 ```powershell
-git clone https://github.com/TODO_YOUR_ACCOUNT/tauri-python-sidecar
+git clone https://github.com/matshoppenbrouwers/tauri-python-sidecar
 cd tauri-python-sidecar
 
 py -3 -m venv .venv
@@ -212,13 +212,13 @@ alternatives:
 machine with several Python installations, `python` resolves to whichever one is
 first on `PATH`, which is usually not this project's virtual environment. The
 sidecar then fails to import `filelock`, dies at startup, and the supervisor
-burns all five restart attempts — which presents as "the supervisor is broken"
+burns all five restart attempts - which presents as "the supervisor is broken"
 rather than "the wrong interpreter ran". `src-tauri/src/paths.rs` prefers
 `.venv/Scripts/python.exe` when it exists for exactly this reason.
 
 **Use `pnpm dev:app`, not `pnpm tauri dev`.** `tauri.conf.json` declares
 `bundle.externalBin: ["binaries/py-sidecar"]`, and Tauri's build script verifies
-that the file exists — in development as well as in a release build. On a fresh
+that the file exists - in development as well as in a release build. On a fresh
 clone it does not exist until you have run Nuitka, which takes minutes and needs
 MSVC. `pnpm dev:app` runs `packaging/dev_placeholder.py` first, which creates an
 empty placeholder; development never executes it, because `paths.rs` branches on
@@ -259,7 +259,7 @@ pnpm tauri build
 The Nuitka build takes around four minutes cold and produces
 `src-tauri/binaries/py-sidecar-x86_64-pc-windows-msvc.exe`. `pnpm tauri build`
 bundles it into an NSIS installer. Signing is skipped when no credentials are
-configured — `packaging/sign.ps1` exits 0 with a warning on purpose, so a clone
+configured - `packaging/sign.ps1` exits 0 with a warning on purpose, so a clone
 without a certificate still builds.
 
 ### Troubleshooting
@@ -279,8 +279,8 @@ wrong Python. Check the log line naming the interpreter, and confirm
 **The PID in the supervisor log is not the PID holding the lock file.** If your
 `.venv` was created from another virtual environment rather than from a system
 Python, its `python.exe` is a launcher that re-executes itself, so there are two
-processes. Supervision still works — killing the real server makes the launcher
-exit, which the supervisor sees — but the PIDs will not match. A virtual
+processes. Supervision still works - killing the real server makes the launcher
+exit, which the supervisor sees - but the PIDs will not match. A virtual
 environment created directly from a system Python has no such indirection.
 
 **`sidecar/shutdown.py` resolves `.index/` relative to the working directory**,
@@ -291,11 +291,16 @@ this file take its path from `SidecarConfig` like the rest.
 
 ### Making it yours
 
-Search for `TODO_YOUR_` and replace: the account and repository in
-`pyproject.toml`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, plus
-the name and copyright in `LICENSE` and `packaging/nuitka-build.py`. Change
-`identifier` in `tauri.conf.json` and the data directory name in
-`src-tauri/src/paths.rs`.
+Search for `TODO_YOUR_`. What is left is deliberately yours to supply: the
+updater public key and endpoint in `src-tauri/tauri.conf.json`, the signing
+description in `packaging/sign.ps1`, and the company and copyright strings
+stamped into the binary by `packaging/nuitka-build.py`.
+
+Then change the things that still name this repository: the `authors`,
+`repository` and `homepage` fields in `src-tauri/Cargo.toml` and
+`pyproject.toml`, `REPO_URL` in `packaging/generate_latest_json.py`, the
+copyright holder in `LICENSE`, `identifier` in `tauri.conf.json`, and the data
+directory name in `src-tauri/src/paths.rs`.
 
 **The auto-updater ships wired but switched off**, which is intentional: with
 `createUpdaterArtifacts: true` and no signing key set, `pnpm tauri build` hard
@@ -308,7 +313,7 @@ fails, and every fresh clone would fail that way. To turn it on:
    the build environment.
 
 `ui/src/hooks/useUpdater.ts` holds the update flow and is deliberately not
-imported by `App.tsx` — the demo is about crash recovery. Read it for the
+imported by `App.tsx` - the demo is about crash recovery. Read it for the
 ordering it enforces: take a backup, **abort the whole update if the backup
 failed**, kill the sidecars, then install. The backup call itself is a
 documented TypeScript stub; the comment names the exact `invoke` that replaces
@@ -318,13 +323,13 @@ it and what the Rust side has to guarantee.
 
 ## 5. Component tour
 
-### `src-tauri/src/lib.rs` — supervision, sweep, recovery
+### `src-tauri/src/lib.rs` - supervision, sweep, recovery
 
 The monitor thread restarts the sidecar on unexpected exit with the delays
 `[1, 2, 5, 5, 5]` seconds, then emits `failed` and stops. The ladder is capped
 rather than exponential-forever because a sidecar that dies is almost always
-either transiently unlucky — a port still in `TIME_WAIT`, a database still held
-by the process that just died — in which case a second or two is enough, or
+either transiently unlucky - a port still in `TIME_WAIT`, a database still held
+by the process that just died - in which case a second or two is enough, or
 broken in a way that waiting will not fix, in which case the user needs to be
 told rather than left watching an app retry silently for ten minutes.
 
@@ -336,7 +341,7 @@ At startup it sweeps stale PID locks and checkpoints a stale write-ahead log.
 The `WORKERS` const registry is what those sweeps walk, so supervising a second
 process is a one-line change rather than four edits scattered through the file.
 
-On a hard kill of the app — not a window close — the detached sidecar survives,
+On a hard kill of the app - not a window close - the detached sidecar survives,
 and that startup sweep is what cleans it up on the next launch.
 
 That sweep is also the one place this pattern can do real damage, so it is worth
@@ -348,7 +353,7 @@ belong to something else entirely, and a blind `taskkill /F` would take out a
 stranger's program. A lock file with no recorded name is not killed either; a
 leftover worker is a recoverable annoyance, killing the wrong process is not.
 
-### `src-tauri/src/supervisor.rs` — the general case
+### `src-tauri/src/supervisor.rs` - the general case
 
 A map of supervised child processes keyed by id, with declarative launch specs,
 dynamic port allocation and injection, HTTP/WebSocket/process health probes and
@@ -360,7 +365,7 @@ The spawn path is TOCTOU-safe against shutdown: it re-checks the shutdown flag
 after acquiring the lock, so a process cannot be spawned into an app that is
 already exiting.
 
-### `src-tauri/src/paths.rs` — where everything lives
+### `src-tauri/src/paths.rs` - where everything lives
 
 `allocate_free_port()` binds port 0, reads the assignment and releases it. The
 window between releasing and the child binding is a real race, documented rather
@@ -385,14 +390,14 @@ compromised or careless frontend from reaching arbitrary sidecar internals.
 `LONG_RUNNING_METHODS` is empty in the template, with a comment explaining what
 belongs in it and why raising the global timeout is the wrong fix.
 
-### `sidecar/server.py` — the transport
+### `sidecar/server.py` - the transport
 
 Token handshake ([docs/auth-handshake.md](docs/auth-handshake.md)), PID lock, and
 a `stdout`/`stderr` redirect to a log file. That redirect is not optional: the
 frozen binary is built with the console disabled so it does not flash a black
 window on every restart, which leaves it with no valid standard streams.
 
-### `sidecar/storage/` — migrations under concurrency
+### `sidecar/storage/` - migrations under concurrency
 
 `init_schema` is a sentinel fast path, then a cross-process file lock, then a
 re-check inside the lock, then apply. Several processes opening the same
@@ -434,7 +439,7 @@ written to stand alone.
 
 ## 6. Provenance and maintenance
 
-This is extracted from a discontinued commercial desktop application — a Tauri
+This is extracted from a discontinued commercial desktop application - a Tauri
 v2 app with a Python sidecar, built and shipped for Windows. The supervision,
 transport, migration, packaging and update code ran in production. It is
 published because the pattern was worth more than the product, and because
@@ -458,7 +463,7 @@ project. There is no roadmap, issues may go unanswered, and it may never see
 another commit. Fork it, copy the pieces you need, and treat it as a snapshot of
 something that worked rather than as a dependency.
 
-Corrections are welcome, particularly to the comctl32 note — if that explanation
+Corrections are welcome, particularly to the comctl32 note - if that explanation
 saves someone the afternoon it cost to find, it has paid for the whole
 repository.
 

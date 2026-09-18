@@ -1,8 +1,8 @@
 # The auth handshake
 
-The sidecar listens on a TCP socket. Anything else running as the same user —
+The sidecar listens on a TCP socket. Anything else running as the same user - 
 a browser page via a fetch to `127.0.0.1`, another installed application, a
-script — can open that socket. Binding to loopback keeps it off the network; it
+script - can open that socket. Binding to loopback keeps it off the network; it
 does not keep it away from the rest of the machine. The handshake is the second
 layer.
 

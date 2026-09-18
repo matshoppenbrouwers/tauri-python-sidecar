@@ -39,7 +39,7 @@ its own separate executable (`your_app_lib-<hash>.exe`). That binary is produced
 by rustc without `build.rs`'s linked resources, so it has no `RT_MANIFEST`
 resource at all. With no manifest, the loader resolves `comctl32.dll` to the
 System32 v5.82 copy, fails to find `TaskDialogIndirect` among its exports, and
-terminates the process with `STATUS_ENTRYPOINT_NOT_FOUND` — before a single test
+terminates the process with `STATUS_ENTRYPOINT_NOT_FOUND` - before a single test
 function runs.
 
 It is an import-resolution failure at load time, which is why nothing in your
@@ -56,7 +56,7 @@ is the binary that crashes, so the flag never touches it. `rustc-link-arg` in
 its unscoped form is rejected for this target configuration.
 
 Marking the tests `#[ignore]`, or moving them out of `src/` into `tests/`, both
-"work" in the sense that the crash stops — by not running the code. Neither is
+"work" in the sense that the crash stops - by not running the code. Neither is
 a fix.
 
 ## The fix: a cargo runner that embeds the manifest
@@ -68,7 +68,7 @@ binary exists, is about to be loaded, and can still be patched.
 
 Three files, all in this repository under `src-tauri/.cargo/`:
 
-**`config.toml`** — registers the runner, scoped to one target triple:
+**`config.toml`** - registers the runner, scoped to one target triple:
 
 ```toml
 [target.x86_64-pc-windows-msvc]
@@ -77,9 +77,9 @@ runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
 
 The target scope matters. A `cargo test` run from WSL or Linux CI targets
 `x86_64-unknown-linux-gnu`, never matches this key, and is completely
-unaffected — no PowerShell, no `mt.exe`, no manifest.
+unaffected - no PowerShell, no `mt.exe`, no manifest.
 
-**`comctl-v6.xml`** — a minimal manifest declaring the v6 dependency:
+**`comctl-v6.xml`** - a minimal manifest declaring the v6 dependency:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -103,7 +103,7 @@ a `.gitignore` (common in Windows repositories, and present in several Tauri
 templates) would silently swallow it, and the failure that produces looks
 exactly like the original bug.
 
-**`run-test.ps1`** — locates `mt.exe` from the newest installed Windows SDK,
+**`run-test.ps1`** - locates `mt.exe` from the newest installed Windows SDK,
 checks whether the target executable already has an `RT_MANIFEST` at resource
 id 1, embeds `comctl-v6.xml` **only when it does not**, then runs the
 executable and propagates its exit code.
@@ -139,5 +139,5 @@ that it reappears after a test run.
 
 This is not specific to `tauri-plugin-dialog`. Any crate whose test binary
 imports a symbol that exists only in a side-by-side assembly version will fail
-the same way, and the same runner fixes it — change the manifest contents to
+the same way, and the same runner fixes it - change the manifest contents to
 declare whatever assembly that dependency needs.

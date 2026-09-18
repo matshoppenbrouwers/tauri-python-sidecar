@@ -11,14 +11,14 @@ used. This note is the longer version.
 ## `--nofollow-import-to` is the memory flag
 
 In the application this template was extracted from, the Nuitka build peaked at
-around **14 GB of RAM** and routinely died on a 16 GB machine — often twenty
+around **14 GB of RAM** and routinely died on a 16 GB machine - often twenty
 minutes in, with an error that reads like a compiler bug rather than an
 out-of-memory condition.
 
 The cause was Nuitka following imports into heavy libraries: `torch`,
 `transformers`, `sentence_transformers`, `numpy`, `sklearn`. Adding
 `--nofollow-import-to` for each of them took peak build memory from roughly
-14 GB to roughly 2 GB. Nothing else came close to that effect — not `--jobs`,
+14 GB to roughly 2 GB. Nothing else came close to that effect - not `--jobs`,
 not `--lto`, not splitting the build.
 
 The names are still in `NOFOLLOW_IMPORTS` in this template even though none of
@@ -38,7 +38,7 @@ def extract_text(path):
 
 Deferring an import into a function makes it lazy **at runtime**. It does not
 exclude it from the build. Nuitka's static analysis walks function bodies, finds
-that import, and pulls the entire package — and its transitive dependencies —
+that import, and pulls the entire package - and its transitive dependencies - 
 into the binary. The shipped executable contains a library that most users will
 never trigger.
 
@@ -58,7 +58,7 @@ merged and the merged version is wrong:**
 What connects them is the mechanism: runtime laziness is not build-time
 exclusion. Only `--nofollow-import-to` is. If you have a guarded import of
 something whose licence you cannot accept in a shipped binary, auditing the
-import statements is not enough — check the binary, and exclude the package
+import statements is not enough - check the binary, and exclude the package
 explicitly.
 
 ## `--python-flag=no_annotations` breaks runtime introspection
@@ -87,7 +87,7 @@ static analysis and simply will not be there.
 
 `INCLUDE_PACKAGES` here names `sidecar`, `sidecar.storage` and `filelock`.
 `filelock` is imported normally by `storage/migration_lock.py`, so it would be
-followed anyway — it is named explicitly as the example of the habit. If it were
+followed anyway - it is named explicitly as the example of the habit. If it were
 ever imported lazily, the binary would build clean and then fail the first time
 two processes raced on a migration, in the field, on someone else's machine.
 Deterministic bundling is worth one line per package.
@@ -95,7 +95,7 @@ Deterministic bundling is worth one line per package.
 ## `--onefile` and the target-triple rename
 
 Tauri's `externalBin` resolves `"binaries/py-sidecar"` to
-`binaries/py-sidecar-<target triple>.exe` — on this platform,
+`binaries/py-sidecar-<target triple>.exe` - on this platform,
 `py-sidecar-x86_64-pc-windows-msvc.exe`. Not `py-sidecar.exe`, not any other
 spelling. The build script renames Nuitka's output to exactly that name, and the
 rename is functional rather than cosmetic: get it wrong and the bundler fails
@@ -107,7 +107,7 @@ a temporary directory. Each supervisor restart pays it again.
 
 ## `--windows-console-mode=disable`, and what it forces
 
-A console-subsystem binary flashes a black window every time it starts — on
+A console-subsystem binary flashes a black window every time it starts - on
 launch, and again on every supervisor restart. Disabling the console fixes that
 and takes `stdout`/`stderr` away entirely: they become invalid handles, and
 anything that writes to them can fail.
