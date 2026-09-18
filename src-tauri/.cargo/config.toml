@@ -1,0 +1,8 @@
+# Wrap Windows test/run binaries so the lib unit-test binary gets a
+# Common-Controls v6 manifest before it loads (comctl32 v6 TaskDialogIndirect,
+# pulled in via tauri-plugin-dialog). Without it `cargo test` dies at load with
+# STATUS_ENTRYPOINT_NOT_FOUND. The runner only patches binaries missing a
+# manifest, so the shipped app.exe is untouched. Windows-msvc target only, so
+# a Linux/WSL `cargo test` is unaffected. See docs/comctl32-test-runner.md.
+[target.x86_64-pc-windows-msvc]
+runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo\\run-test.ps1"]

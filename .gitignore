@@ -1,0 +1,43 @@
+# Rust / Tauri build output
+target/
+src-tauri/gen/schemas
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+build/
+
+# Build artefacts — the Nuitka sidecar binary is produced by
+# packaging/nuitka-build.py and must never be committed.
+*.exe
+
+# Local data: the demo sidecar creates its SQLite database next to the app.
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets — signing keys and updater credentials live in the environment only.
+.env
+.env.*
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.sln
+*.sw?

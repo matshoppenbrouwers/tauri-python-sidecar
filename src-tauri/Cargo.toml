@@ -1,0 +1,45 @@
+[package]
+name = "tauri-python-sidecar"
+version = "0.1.0"
+description = "Tauri v2 desktop app with a supervised Python sidecar"
+authors = ["TODO_YOUR_NAME <TODO_YOUR_EMAIL>"]
+license = "MIT"
+repository = "https://github.com/TODO_YOUR_ORG/TODO_YOUR_REPO"
+homepage = "https://github.com/TODO_YOUR_ORG/TODO_YOUR_REPO"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tauri_python_sidecar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# tauri-plugin-dialog is what drags comctl32 v6's TaskDialogIndirect into the
+# link. That import is the reason `.cargo/run-test.ps1` exists: without the
+# embedded Common-Controls v6 manifest the lib unit-test binary dies at load
+# with STATUS_ENTRYPOINT_NOT_FOUND. See docs/comctl32-test-runner.md.
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+tokio = { version = "1", features = ["time"] }
+
+# `paths::get_data_dir()` resolves the platform data directory on macOS/Linux.
+# Windows reads %APPDATA% directly and needs no extra crate.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+dirs = "5"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

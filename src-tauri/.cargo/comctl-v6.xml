@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- Common-Controls v6 dependency. Embedded by run-test.ps1 into cargo test
+       binaries that lack a manifest (the lib unit-test binary has none). Without
+       it the loader binds tauri-plugin-dialog's TaskDialogIndirect against
+       System32 comctl32 v5.82 (no such export) and the test exe dies at load
+       with STATUS_ENTRYPOINT_NOT_FOUND. The shipped app.exe gets its full
+       manifest from tauri's resource.lib and is left untouched. See docs/comctl32-test-runner.md.
+       Named *.xml (not *.manifest) so .gitignore's `*.manifest` rule keeps it. -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>
