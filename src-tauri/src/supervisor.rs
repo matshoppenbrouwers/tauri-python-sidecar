@@ -1,14 +1,18 @@
 //! Per-harness process lifecycle: spawn, dynamic ports, health, restart.
 //!
-//! Generalizes the single-child `SidecarSupervisor` + `spawn_sidecar_monitor`
-//! pattern (`state.rs`, `lib.rs`) into a map keyed by harness id so the app can
-//! own the full lifecycle of N external agentic harnesses (Hermes, OpenClaw).
+//! A *harness* here is any external process the app owns the lifecycle of — a
+//! second Python service, a language server, a vendored CLI daemon. This module
+//! generalizes the single-child `SidecarSupervisor` + `spawn_sidecar_monitor`
+//! pattern (`state.rs`, `lib.rs`) into a map keyed by harness id, so one app can
+//! supervise N of them. The template itself supervises only the Python sidecar;
+//! this file is here because it is the shape the general case takes, and because
+//! it is the direct answer to tauri-apps/plugins-workspace#3062.
 //!
-//! Launch specs are declarative (recipe-derived): a `command`/`args`/`cwd`/`env`
-//! plus how to inject the port and how to health-check. The supervisor spawns
-//! FOREGROUND processes only (for OpenClaw that means `openclaw gateway run`,
-//! never `--install-daemon`, which would register OpenClaw's own OS service and
-//! fight this supervisor).
+//! Launch specs are declarative: a `command`/`args`/`cwd`/`env` plus how to
+//! inject the port and how to health-check. The supervisor spawns FOREGROUND
+//! processes only. If the process you are supervising offers an "install as a
+//! service/daemon" mode, do not use it: the OS service manager would then own
+//! the process and fight this supervisor for restart rights.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -31,10 +35,12 @@ const HARNESS_RESTART_WINDOW: Duration = Duration::from_secs(300);
 const HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_IO_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Declarative launch spec for a harness, derived from the recipe's `launch`,
-/// `port`, and `health` blocks plus the runtime record.
-// VERIFY: exact recipe JSON field names/shape are Phase 2 (catalog) work and
-// doc-verified only. Keep this deserialization the single place to correct.
+/// Declarative launch spec for a harness: how to start it, how it takes its
+/// port, and how to tell that it is actually serving.
+///
+/// It derives `Deserialize` so the specs can come from a JSON catalogue rather
+/// than being compiled in. Keep this struct the single place that defines that
+/// wire shape.
 #[derive(Clone, Debug, Deserialize)]
 pub struct LaunchSpec {
     pub command: String,
@@ -58,13 +64,13 @@ pub struct PortSpec {
     /// it is the well-known port a user-installed daemon would occupy.
     #[serde(default)]
     pub value: Option<u16>,
-    /// Env var to inject the chosen port into (Hermes: `API_SERVER_PORT`).
-    // VERIFY: Hermes reads API_SERVER_PORT from ~/.hermes/.env — confirm it also
-    // honors a process-env override at launch (Phase 0 spike).
+    /// Env var to inject the chosen port into (e.g. `API_SERVER_PORT`).
+    // A service that reads its port from a config file on disk may ignore the
+    // process environment entirely. Confirm the override actually takes effect
+    // before trusting dynamic ports with a given harness.
     #[serde(default)]
     pub env: Option<String>,
-    /// CLI flag to inject the chosen port with (OpenClaw: `--port`).
-    // VERIFY: OpenClaw `gateway run --port <n>` flag name (Phase 0 spike).
+    /// CLI flag to inject the chosen port with (e.g. `--port`).
     #[serde(default)]
     pub arg: Option<String>,
 }
@@ -75,10 +81,11 @@ pub struct HealthSpec {
     /// `"http"` (GET `path`), `"ws"` (WebSocket probe), or `"process"`.
     #[serde(rename = "type")]
     pub kind: String,
-    /// HTTP path for `http` health (Hermes: `/health`).
+    /// HTTP path for `http` health (e.g. `/health`).
     #[serde(default)]
     pub path: Option<String>,
-    /// WS method/probe hint for `ws` health (OpenClaw has no HTTP health path).
+    /// WS method/probe hint for `ws` health, for services that expose no HTTP
+    /// health path.
     #[serde(default)]
     pub probe: Option<String>,
 }
@@ -172,21 +179,23 @@ pub fn port_in_use(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, HEALTH_CONNECT_TIMEOUT).is_ok()
 }
 
-/// Run a single health probe per the recipe's `health` block.
+/// Run a single health probe per the spec's `health` block.
 ///
 /// `http`: GET the path and accept any non-5xx status as "serving".
-/// `ws`/`process`: liveness only (see VERIFY notes) — the caller confirms the
-/// supervised child is alive for `process`.
+/// `ws`/`process`: liveness only — the caller confirms the supervised child is
+/// alive for `process`. See the note on the `ws` arm below for why that is
+/// weaker than it looks.
 pub fn health_probe(spec: &LaunchSpec, port: u16) -> Result<(), String> {
     match spec.health.kind.as_str() {
         "http" => {
             let path = spec.health.path.as_deref().unwrap_or("/health");
             health_probe_http(port, path)
         }
-        // VERIFY: real OpenClaw readiness is a WS upgrade + `connect.challenge`
-        // nonce handshake (research §2.2); a bare TCP connect only proves the
-        // port is bound. Upgrade to a real WS probe once the handshake is
-        // hands-on confirmed (Phase 0).
+        // A bare TCP connect only proves the port is bound, not that the
+        // WebSocket endpoint completed its upgrade and is accepting messages.
+        // For a service whose readiness means "finished its handshake", replace
+        // this with a real WS upgrade probe; otherwise the supervisor will
+        // report healthy while the first request still fails.
         "ws" => {
             let probe = spec.health.probe.as_deref().unwrap_or("status");
             if port_in_use(port) {
