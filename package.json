@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "pnpm --filter ui dev",
     "build": "pnpm --filter ui build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev:app": "python packaging/dev_placeholder.py && tauri dev"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

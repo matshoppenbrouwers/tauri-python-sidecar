@@ -842,13 +842,21 @@ pub fn run() {
         .manage(SidecarSupervisor::default())
         .manage(HarnessSupervisor::default())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Logging is enabled in release too, not only under
+            // `debug_assertions` as the `create-tauri-app` scaffold has it.
+            // Everything this template supervises fails in ways you cannot see
+            // from the window: the sidecar exits, the backoff ladder counts
+            // down, the WAL checkpoint recovers or does not. In development you
+            // read that from the terminal; in an installed build the log file is
+            // the only record, and it is exactly the build where a user says
+            // "it stopped working" and you have nothing to go on. The default
+            // targets write to stdout and to the platform log directory
+            // (`%LOCALAPPDATA%\<identifier>\logs` on Windows).
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
 
             // Cleanup any stale workers from previous runs (BLOCKING, SYNCHRONOUS).
             // This prevents race conditions where a freshly spawned worker meets

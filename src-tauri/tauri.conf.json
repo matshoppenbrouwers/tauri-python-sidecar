@@ -25,6 +25,9 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": false,
+    "externalBin": [
+      "binaries/py-sidecar"
+    ],
     "targets": [
       "nsis"
     ],

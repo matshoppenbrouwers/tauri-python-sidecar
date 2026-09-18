@@ -215,8 +215,19 @@ def build_sidecar() -> int:
             print("Build may have failed silently or output path changed.")
             return 1
 
+        # Windows refuses to unlink a running image, and the previous build's
+        # sidecar is very often still alive: the supervisor spawns it DETACHED,
+        # so closing the app or the terminal does not take it down. Nuitka has
+        # already spent its several minutes by this point, so failing here with
+        # a bare PermissionError wastes the whole build. Say what to kill.
         if final_exe.exists():
-            final_exe.unlink()
+            try:
+                final_exe.unlink()
+            except PermissionError:
+                print(f"ERROR: Cannot replace {final_exe.name} - it is in use.")
+                print("  A previous sidecar is still running. Stop it with:")
+                print(f"    taskkill /IM {final_exe.name} /F")
+                return 1
         nuitka_output.rename(final_exe)
 
         if not final_exe.exists():
