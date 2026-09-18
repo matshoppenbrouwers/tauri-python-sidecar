@@ -1,0 +1,20 @@
+# Build environment for Nuitka packaging.
+# Install with: pip install -r packaging/build-requirements.txt
+#
+# Everything Nuitka has to BUNDLE must be importable in the environment you
+# build from — Nuitka compiles what it can import, not what a lockfile claims.
+# That is why the runtime dependencies are repeated here rather than being left
+# to `pip install -e .`: a build venv that lacks one of them produces an .exe
+# that fails at startup instead of failing at build time.
+#
+# The list is deliberately tiny. Each dependency you add is another thing that
+# has to survive compilation; see the notes in nuitka-build.py for the ones that
+# do not survive it quietly.
+
+# === Build tools ===
+nuitka>=2.0
+ordered-set
+zstandard  # onefile payload compression; without it Nuitka falls back to none
+
+# === Runtime dependencies (must be importable so Nuitka can bundle them) ===
+filelock>=3.12  # Cross-process lock for single-apply schema migrations
