@@ -190,7 +190,9 @@ rewriting it would have meant publishing something unproven.
 - Windows 10/11 SDK - needed for `mt.exe`, which `cargo test` uses; see
   [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md)
 - Python 3.10 or later
-- Node 18 or later, with pnpm. If `pnpm` is not on `PATH`: `corepack enable pnpm`
+- Node 18 or later, with pnpm. If `pnpm` is not on `PATH`, enable it with
+  `corepack enable pnpm` on Node 18 to 24, or install it directly with
+  `npm install -g pnpm` on Node 25 and later, which no longer ships corepack
 
 ### Development
 
@@ -243,10 +245,21 @@ working after packaging, signing and an auto-update.
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q
+
+.venv\Scripts\python.exe packaging\dev_placeholder.py
 cd src-tauri; cargo test
 ```
 
 The Rust tests need the Windows SDK, per the comctl32 note above.
+
+They also need `packaging/dev_placeholder.py` to have run at least once in the
+clone. `cargo test` builds the crate, which runs Tauri's build script, which
+refuses to proceed while the `externalBin` file named in `tauri.conf.json` is
+missing - and a fresh clone has no sidecar binary yet. The placeholder is an
+empty file that satisfies that check and is never executed; the script's
+docstring explains why it is deliberately not wired into the release build.
+`pnpm dev:app` runs it for you, so this line is only needed when `cargo test` is
+the first thing you do after cloning.
 
 ### Release build
 
