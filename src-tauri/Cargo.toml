@@ -1,6 +1,6 @@
 [package]
 name = "tauri-python-sidecar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tauri v2 desktop app with a supervised Python sidecar"
 authors = ["matshoppenbrouwers"]
 license = "MIT"

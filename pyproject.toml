@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tauri-python-sidecar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Supervised Python sidecar for a Tauri desktop app: authenticated TCP JSON-RPC, cross-process SQLite migrations, crash recovery."
 readme = "README.md"
 requires-python = ">=3.10"
