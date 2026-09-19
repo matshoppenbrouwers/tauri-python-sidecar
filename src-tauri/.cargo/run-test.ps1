@@ -1,8 +1,17 @@
-# cargo test/run "runner" for x86_64-pc-windows-msvc (see .cargo/config.toml).
+# cargo test "runner" for x86_64-pc-windows-msvc.
 #
-# The lib unit-test binary (tauri_python_sidecar_lib-*.exe) links
-# tauri-plugin-dialog, which imports comctl32 v6's TaskDialogIndirect, but
-# carries no embedded manifest.
+# Registered only via .cargo/test-runner.toml, which you pass explicitly:
+#   cargo test --config .cargo\test-runner.toml
+# It is kept out of config.toml because cargo applies `runner` to `cargo run`
+# too, which makes `tauri dev` open an empty console window.
+#
+# This repository does not itself reproduce the crash below: its lib test
+# binary imports nothing from comctl32. The files are here as a working
+# reference for apps that do hit it.
+#
+# In an app whose lib unit-test binary reaches tauri-plugin-dialog's dialog
+# code, that binary imports comctl32 v6's TaskDialogIndirect while carrying
+# no embedded manifest.
 # The loader then binds against System32 comctl32 v5.82 (no such export) and the
 # process dies at load with STATUS_ENTRYPOINT_NOT_FOUND before any test runs.
 #

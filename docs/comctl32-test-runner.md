@@ -3,6 +3,12 @@
 This note stands on its own. If you arrived from a Tauri issue thread and have
 never seen the rest of this repository, everything you need is here.
 
+One clarification first, added after this repository was published. The template
+you are looking at does **not** reproduce this crash. Its lib unit-test binary
+imports nothing from `comctl32.dll`, verified by reading the binary's import
+table, so plain `cargo test` passes here. The fix ships as a working reference
+for apps that do hit it, and it is opted into per command rather than left on.
+
 ## The symptom
 
 On `x86_64-pc-windows-msvc`, in a Tauri v2 app that depends on
@@ -66,16 +72,32 @@ about to execute. The runner receives the executable path plus the test
 arguments, and is responsible for running it. That is the one place where the
 binary exists, is about to be loaded, and can still be patched.
 
-Three files, all in this repository under `src-tauri/.cargo/`:
+Four files, all in this repository under `src-tauri/.cargo/`:
 
-**`config.toml`** - registers the runner, scoped to one target triple:
+**`test-runner.toml`** - registers the runner, scoped to one target triple:
 
 ```toml
 [target.x86_64-pc-windows-msvc]
 runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo\\run-test.ps1"]
 ```
 
-The target scope matters. A `cargo test` run from WSL or Linux CI targets
+You pass it explicitly, and only when testing:
+
+```powershell
+cargo test --config .cargo\test-runner.toml
+```
+
+**Do not put this key in `.cargo/config.toml`.** That was this repository's first
+attempt and it is wrong. Cargo applies `runner` to `cargo run` as well as `cargo
+test`, so the key is always live: `tauri dev` then launches your application
+through `powershell.exe`, and because `tauri dev` pipes cargo's stdio rather than
+handing it a console, Windows allocates a fresh one. The result is an empty
+terminal window sitting next to your app every time you develop. Adding
+`-WindowStyle Hidden` does not fix it, because on Windows 11 the console belongs
+to Windows Terminal rather than to the PowerShell process. Passing the config per
+command keeps `cargo run` completely untouched.
+
+The target scope matters too. A `cargo test` run from WSL or Linux CI targets
 `x86_64-unknown-linux-gnu`, never matches this key, and is completely
 unaffected - no PowerShell, no `mt.exe`, no manifest.
 
@@ -108,10 +130,12 @@ checks whether the target executable already has an `RT_MANIFEST` at resource
 id 1, embeds `comctl-v6.xml` **only when it does not**, then runs the
 executable and propagates its exit code.
 
-The "only when absent" probe is what makes this safe to leave enabled
-permanently. `cargo run` executes the real `app.exe`, which already carries
-Tauri's full manifest; it is detected, left untouched, and launched unmodified.
-Only the manifest-less test binaries get patched.
+The "only when absent" probe is what makes the patching safe: `cargo run`
+executes the real `app.exe`, which already carries Tauri's full manifest, so it
+is detected, left untouched, and launched unmodified. Only the manifest-less test
+binaries get patched. That protects the binary, which is not the same as being
+free to leave the runner registered globally; see the console-window problem
+above.
 
 The SDK lookup result is cached in a file under `%TEMP%` so the directory scan
 does not repeat on every test binary in a run.
@@ -124,8 +148,8 @@ and runs the binary anyway, rather than failing silently.
 Reproduce: create a Tauri v2 app, add `tauri-plugin-dialog = "2"`, put any
 `#[test]` inside `src/`, and run `cargo test` on Windows.
 
-Verify the fix: with the three `.cargo/` files in place, `cargo test` runs the
-tests normally. To confirm the runner actually fired rather than the binary
+Verify the fix: with the `.cargo/` files in place, `cargo test --config
+.cargo\test-runner.toml` runs the tests normally. To confirm the runner actually fired rather than the binary
 happening to load, delete the `%TEMP%` cache file the script writes and check
 that it reappears after a test run.
 

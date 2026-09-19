@@ -1,0 +1,14 @@
+# Passed to cargo explicitly for test runs only:
+#
+#   cargo test --config .cargo\test-runner.toml
+#
+# This key deliberately does NOT live in config.toml. Cargo applies `runner` to
+# `cargo run` as well as `cargo test`, so having it always on means `tauri dev`
+# launches the app through powershell.exe. When the parent pipes cargo's stdio,
+# as `tauri dev` does, Windows allocates a console for that PowerShell and an
+# empty terminal window appears next to the app. `-WindowStyle Hidden` does not
+# suppress it when Windows Terminal is the default console host.
+#
+# See docs/comctl32-test-runner.md.
+[target.x86_64-pc-windows-msvc]
+runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo\\run-test.ps1"]

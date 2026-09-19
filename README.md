@@ -187,7 +187,7 @@ rewriting it would have meant publishing something unproven.
 
 - Windows 10 or 11
 - Rust, MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`)
-- Windows 10/11 SDK - needed for `mt.exe`, which `cargo test` uses; see
+- Windows 10/11 SDK, only if you adopt the optional comctl32 test runner; see
   [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md)
 - Python 3.10 or later
 - Node 18 or later, with pnpm. If `pnpm` is not on `PATH`, enable it with
@@ -250,8 +250,6 @@ working after packaging, signing and an auto-update.
 cd src-tauri; cargo test
 ```
 
-The Rust tests need the Windows SDK, per the comctl32 note above.
-
 They also need `packaging/dev_placeholder.py` to have run at least once in the
 clone. `cargo test` builds the crate, which runs Tauri's build script, which
 refuses to proceed while the `externalBin` file named in `tauri.conf.json` is
@@ -277,9 +275,16 @@ without a certificate still builds.
 
 ### Troubleshooting
 
-**`cargo test` exits immediately with `STATUS_ENTRYPOINT_NOT_FOUND`.** Install
-the Windows 10/11 SDK; `mt.exe` is missing. See
-[docs/comctl32-test-runner.md](docs/comctl32-test-runner.md).
+**`cargo test` exits immediately with `STATUS_ENTRYPOINT_NOT_FOUND`.** This
+crate's tests do not trigger it, so you are seeing it after adding a dependency
+whose dialog code reaches the test binary. Run
+`cargo test --config .cargo\test-runner.toml`, which needs the Windows 10/11 SDK
+for `mt.exe`. See [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md).
+
+**An empty console window opens next to the app under `pnpm dev:app`.** Something
+registered a cargo `runner` in `.cargo/config.toml`. Cargo applies it to `cargo
+run` too, so the app launches through `powershell.exe` and Windows gives it a
+console. Move the key to `.cargo/test-runner.toml` and pass it only when testing.
 
 **`tauri dev` fails with `resource path binaries\py-sidecar-…exe doesn't exist`.**
 You ran `pnpm tauri dev` instead of `pnpm dev:app`. Run
@@ -443,10 +448,26 @@ what stop an update from deleting the user's data on the way past.
 
 ### `src-tauri/.cargo/`
 
-The comctl32 test runner. Without it `cargo test` dies at load with
-`STATUS_ENTRYPOINT_NOT_FOUND` before a single test runs.
-[docs/comctl32-test-runner.md](docs/comctl32-test-runner.md) explains it, and is
-written to stand alone.
+A cargo test runner for a Windows failure this template does not itself hit, kept
+as a working reference because the fix is hard to find. In an app whose lib
+unit-test binary reaches `tauri-plugin-dialog`'s dialog code, `cargo test` dies
+in the loader with `STATUS_ENTRYPOINT_NOT_FOUND` before a single test runs. This
+crate's test binary imports nothing from comctl32, so plain `cargo test` works.
+
+The runner is registered in `test-runner.toml`, not `config.toml`, and is opted
+into per command:
+
+```powershell
+cargo test --config .cargo\test-runner.toml
+```
+
+That split matters. Cargo applies `runner` to `cargo run` as well as `cargo
+test`, so registering it in `config.toml` makes `tauri dev` launch the app
+through `powershell.exe`; when the parent pipes cargo's stdio, Windows allocates
+a console for it and an empty terminal window appears beside the app.
+`-WindowStyle Hidden` does not suppress it when Windows Terminal is the default
+console host. [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md)
+explains the whole thing, and is written to stand alone.
 
 ---
 

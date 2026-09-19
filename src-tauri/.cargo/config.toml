@@ -1,8 +1,11 @@
-# Wrap Windows test/run binaries so the lib unit-test binary gets a
-# Common-Controls v6 manifest before it loads (comctl32 v6 TaskDialogIndirect,
-# pulled in via tauri-plugin-dialog). Without it `cargo test` dies at load with
-# STATUS_ENTRYPOINT_NOT_FOUND. The runner only patches binaries missing a
-# manifest, so the shipped app.exe is untouched. Windows-msvc target only, so
-# a Linux/WSL `cargo test` is unaffected. See docs/comctl32-test-runner.md.
-[target.x86_64-pc-windows-msvc]
-runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo\\run-test.ps1"]
+# The comctl32 v6 test-manifest runner is NOT registered here on purpose.
+#
+# Cargo's `runner` key applies to `cargo run` as well as `cargo test`. Setting
+# it globally makes `tauri dev` launch the app through powershell.exe, which
+# opens an empty console window beside the app. The runner lives in
+# .cargo\test-runner.toml instead and is passed only when testing:
+#
+#   cargo test --config .cargo\test-runner.toml
+#
+# Without it, `cargo test` dies at load with STATUS_ENTRYPOINT_NOT_FOUND before
+# any test runs. See docs/comctl32-test-runner.md for the full explanation.
