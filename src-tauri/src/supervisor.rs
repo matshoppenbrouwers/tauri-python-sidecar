@@ -127,19 +127,33 @@ pub struct HarnessStatus {
     pub port: Option<u16>,
 }
 
-/// Windows creation flags: detach, own process group, no console window.
-/// Same flags the sidecar spawn uses so no stray consoles appear.
+/// Windows creation flags for every child this app spawns: own process group,
+/// no console window.
+///
+/// `DETACHED_PROCESS` (0x8) is deliberately absent, and adding it back
+/// reintroduces a visible bug. Windows ignores `CREATE_NO_WINDOW` whenever
+/// `DETACHED_PROCESS` is set, so the child ends up with no console at all
+/// rather than an invisible one. That is fine until the child spawns its own
+/// console process: a venv's `Scripts\python.exe` is a launcher that starts the
+/// real interpreter, and a console process with no console to inherit gets a
+/// fresh one allocated, which on Windows 11 is a Windows Terminal window
+/// sitting next to the app. `CREATE_NO_WINDOW` alone gives the child a
+/// windowless console that grandchildren inherit silently.
 #[cfg(target_os = "windows")]
-fn apply_windows_flags(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x00000008;
+pub(crate) const WINDOWS_SPAWN_FLAGS: u32 = {
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+};
+
+#[cfg(target_os = "windows")]
+pub(crate) fn apply_windows_flags(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(WINDOWS_SPAWN_FLAGS);
 }
 
 #[cfg(not(target_os = "windows"))]
-fn apply_windows_flags(_cmd: &mut Command) {}
+pub(crate) fn apply_windows_flags(_cmd: &mut Command) {}
 
 /// Build the launch `Command` with the chosen port injected via env and/or arg.
 fn build_command(spec: &LaunchSpec, port: u16) -> Command {
@@ -686,5 +700,27 @@ mod tests {
         sup.stop_all();
         assert!(!sup.is_running(&id));
         assert!(sup.shutting_down.load(Ordering::SeqCst));
+    }
+
+    /// Guards the stray-console bug: DETACHED_PROCESS makes Windows ignore
+    /// CREATE_NO_WINDOW, and the venv python launcher's own child then opens a
+    /// terminal window next to the app. See WINDOWS_SPAWN_FLAGS.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn spawn_flags_suppress_consoles_without_detaching() {
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        assert_eq!(
+            WINDOWS_SPAWN_FLAGS & DETACHED_PROCESS,
+            0,
+            "DETACHED_PROCESS defeats CREATE_NO_WINDOW; grandchildren get a visible console"
+        );
+        assert_eq!(WINDOWS_SPAWN_FLAGS & CREATE_NO_WINDOW, CREATE_NO_WINDOW);
+        assert_eq!(
+            WINDOWS_SPAWN_FLAGS & CREATE_NEW_PROCESS_GROUP,
+            CREATE_NEW_PROCESS_GROUP
+        );
     }
 }

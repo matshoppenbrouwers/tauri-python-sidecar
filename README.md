@@ -281,10 +281,13 @@ whose dialog code reaches the test binary. Run
 `cargo test --config .cargo\test-runner.toml`, which needs the Windows 10/11 SDK
 for `mt.exe`. See [docs/comctl32-test-runner.md](docs/comctl32-test-runner.md).
 
-**An empty console window opens next to the app under `pnpm dev:app`.** Something
-registered a cargo `runner` in `.cargo/config.toml`. Cargo applies it to `cargo
-run` too, so the app launches through `powershell.exe` and Windows gives it a
-console. Move the key to `.cargo/test-runner.toml` and pass it only when testing.
+**An empty console window opens next to the app under `pnpm dev:app`.** Check
+`src-tauri/src/main.rs`. Tauri's template suppresses the console subsystem in
+release only, which leaves the debug binary a console application; `tauri dev`
+pipes its stdio, so Windows allocates a console for it and you get an empty
+terminal window. This template applies `#![windows_subsystem = "windows"]`
+unconditionally instead. A cargo `runner` in `.cargo/config.toml` causes the
+same symptom, because cargo applies it to `cargo run` as well as `cargo test`.
 
 **`tauri dev` fails with `resource path binaries\py-sidecar-…exe doesn't exist`.**
 You ran `pnpm tauri dev` instead of `pnpm dev:app`. Run

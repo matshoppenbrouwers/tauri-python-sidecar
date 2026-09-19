@@ -83,15 +83,7 @@ fn spawn_sidecar_server_process() -> Result<std::process::Child, String> {
     // modes and not only where it is strictly required.
     cmd.env("SIDECAR_DATA_DIR", paths::get_data_dir());
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-    }
+    crate::supervisor::apply_windows_flags(&mut cmd);
 
     let child = cmd
         .spawn()

@@ -157,15 +157,7 @@ async fn sidecar_request_spawn(
         .stderr(Stdio::piped());
 
     // Spawn sidecar process with proper Windows console suppression
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-    }
+    crate::supervisor::apply_windows_flags(&mut cmd);
 
     let mut child = cmd
         .spawn()
